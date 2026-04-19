@@ -1,6 +1,11 @@
 class Order:
     def __init__(self, user_id: int, user_name: str, product: str):
+        if not product:
+            raise ValueError("Product name is required")
+
         self.user_id = user_id
         self.user_name = user_name
         self.product = product
+
+
 
