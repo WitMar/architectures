@@ -1,83 +1,83 @@
-LayerdArchitecture - przykład architektury warstwowej
-====================================================
+# LayeredArchitecture - przykład architektury warstwowej
 
-Przykład pokazuje podstawową wersję **architektury warstwowej** dla scenariusza:
+Ten katalog pokazuje prosty przykład **layered architecture** dla tworzenia zamówienia.
 
-- pobranie danych użytkownika,
-- utworzenie zamówienia,
-- praca na prostym modelu domenowym `Order`.
+Kod jest rozdzielony na cztery warstwy:
 
-W tej wersji skupiamy się przede wszystkim na układzie warstw, a nie na pełnej funkcjonalności aplikacji.
+- `presentation` - punkt wejścia aplikacji,
+- `application` - przypadek użycia `create_order(...)`,
+- `domain` - model biznesowy `Order`,
+- `infrastructure` - repozytorium zapisujące zamówienie.
 
-Struktura katalogów
--------------------
+## Co jest w kodzie
 
+```text
+LayeredArchitecture/
+├── app/
+│   ├── application/
+│   │   └── create_order.py
+│   ├── domain/
+│   │   └── order.py
+│   ├── infrastructure/
+│   │   └── order_repository.py
+│   └── presentation/
+│       └── api.py
+└── tests/
+    └── test_layered_architecture.py
+```
 
-    LayerdArchitecture/
-      app/
-        application/
-          create_order.py
-        domain/
-          order.py
-        infrastructure/
-          order_repository.py
-        presentation/
-          api.py
-      tests/
-        test_layered_architecture.py
+## Rola warstw i plików
 
-Rola poszczególnych warstw
---------------------------
+- `app/presentation/api.py`  
+  Najprostszy entrypoint. Wywołuje `create_order(...)` i wypisuje `user_name` oraz `product`.
 
-`domain`
-    Zawiera model domenowy `Order`. To tutaj znajduje się podstawowy obiekt biznesowy.
+- `app/application/create_order.py`  
+  Zawiera funkcję `create_order(...)`, która tworzy obiekt domenowy `Order`, tworzy repozytorium `OrderRepository`, zapisuje zamówienie i zwraca wynik.
 
-`application`
-    Zawiera przypadek użycia `create_order`, który buduje obiekt domenowy na podstawie przekazanych danych.
+- `app/domain/order.py`  
+  Model domenowy `Order`. Aktualnie zawiera też prostą walidację: gdy `product` jest pusty, rzuca `ValueError("Product name is required")`.
 
-`presentation`
-    Zawiera prosty punkt wejścia `api.py`, który uruchamia przykład i wypisuje wynik.
+- `app/infrastructure/order_repository.py`  
+  Minimalna warstwa infrastruktury. `save(...)` tylko wypisuje informację o zapisie zamówienia.
 
-`infrastructure`
-    W tej wersji zawiera jedynie prosty placeholder `OrderRepository`, przygotowany pod kolejną iterację z zapisem danych.
+- `tests/test_layered_architecture.py`  
+  Sprawdza, że `create_order(...)` zwraca poprawnie zbudowany obiekt `Order`.
 
-Co pokazuje ten przykład?
--------------------------
+## Przepływ działania
 
-To jest **wersja podstawowa** architektury warstwowej z materiałów:
+1. `presentation/api.py` wywołuje `create_order(1, "Marcin", "Laptop")`.
+2. Warstwa aplikacyjna tworzy domenowy `Order`.
+3. Model domenowy wykonuje walidację danych.
+4. Warstwa infrastruktury zapisuje zamówienie.
+5. Wynik wraca do warstwy prezentacji i jest wypisywany.
 
-- warstwa prezentacji wywołuje przypadek użycia,
-- warstwa aplikacyjna korzysta z modelu domenowego,
-- logika jest podzielona według odpowiedzialności,
-- całość nadal działa jako jedna aplikacja.
+## Co ten przykład pokazuje
 
-Jak uruchomić?
---------------
+- podział odpowiedzialności na warstwy,
+- oddzielenie modelu domenowego od prezentacji,
+- prostą orkiestrację w warstwie aplikacyjnej,
+- miejsce, w którym można później podmienić infrastrukturę na bazę danych lub API.
 
-Uruchom przykład z katalogu `LayerdArchitecture/`:
+## Jak uruchamiać
 
-    py -3 -m app.presentation.api
+`app/presentation/api.py` importuje moduły przez prefiks `LayeredArchitecture`, więc najprościej uruchamiać z katalogu nadrzędnego workspace:
 
-Oczekiwany wynik:
+```powershell
+py -3 -m LayeredArchitecture.app.presentation.api
+```
 
-    Marcin Laptop
+## Jak uruchomić testy
 
-Jak uruchomić test?
--------------------
+Z katalogu nadrzędnego workspace:
 
-    py -3 -m unittest discover -s tests -p "test_*.py"
+```powershell
+py -3 -m pytest LayeredArchitecture/tests -q
+```
 
-Czego ten przykład jeszcze nie pokazuje?
-----------------------------------------
+## Czego ten przykład jeszcze nie pokazuje
 
-To jest wersja startowa, dlatego nie zawiera jeszcze:
-
-- walidacji biznesowej w modelu domenowym,
-- zapisu do bazy danych,
-- integracji z API,
-- bardziej złożonych przypadków użycia,
-- DTO lub osobnych modeli wejścia/wyjścia.
-
-Te elementy są rozwijane w dalszej części materiałów.
-
-
+- trwałego zapisu do bazy danych,
+- osobnych DTO lub commandów wejściowych,
+- dependency injection,
+- bardziej rozbudowanych przypadków użycia,
+- testów izolujących infrastrukturę od aplikacji.

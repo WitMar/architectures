@@ -1,102 +1,113 @@
-Heksagonal - przykład architektury heksagonalnej
-================================================
+# Heksagonal - przykład architektury heksagonalnej
 
-Ten katalog zawiera **początkową implementację** przykładu architektury heksagonalnej.
+Ten katalog pokazuje prosty przykład **hexagonal architecture / ports & adapters** dla tworzenia zamówienia.
 
-- rdzeń domeny (`domain`),
-- przypadek użycia (`application`),
-- porty (`ports`),
-- adaptery in-memory (`adapters`).
+Aktualny kod jest podzielony na:
 
-Scenariusz przykładowy
-----------------------
+- `domain` - model biznesowy `Order`,
+- `application` - przypadek użycia `CreateOrderUseCase` i DTO wejściowe z modułu użytkowników,
+- `ports` - kontrakty wymagane przez use case,
+- `adapters` - kilka wymiennych adapterów do pobierania użytkownika i zapisu zamówienia.
 
-W przykładzie realizujemy ten sam scenariusz co w materiałach:
+## Co jest w kodzie
 
-- pobieramy użytkownika o identyfikatorze `1`,
-- tworzymy zamówienie na produkt `Laptop`,
-- zapisujemy zamówienie przez adapter repozytorium.
+```text
+Heksagonal/
+├── app/
+│   ├── adapters/
+│   │   ├── api.py
+│   │   ├── order_sql.py
+│   │   ├── orders_file.py
+│   │   ├── orders_in_memory.py
+│   │   ├── users_http.py
+│   │   └── users_in_memory.py
+│   ├── application/
+│   │   ├── create_order.py
+│   │   └── user_for_order_dto.py
+│   ├── domain/
+│   │   └── order.py
+│   └── ports/
+│       ├── order_repository_port.py
+│       └── user_query_port.py
+└── tests/
+    └── test_hexagonal_architecture.py
+```
 
-Struktura katalogów
--------------------
+## Rola plików
 
-    Heksagonal/
-      app/
-        application/
-          create_order.py
-        domain/
-          order.py
-        ports/
-          user_query_port.py
-          order_repository_port.py
-        adapters/
-          users_in_memory.py
-          orders_in_memory.py
-          api.py
-      tests/
-        test_hexagonal_architecture.py
+- `app/domain/order.py`  
+  Najprostszy model domenowy `Order` z polami `user_id`, `user_name`, `product`.
 
-Opis elementów
---------------
+- `app/application/create_order.py`  
+  Definiuje `CreateOrderUseCase`. Use case:
+  1. pobiera użytkownika przez `user_query_port`,
+  2. tworzy domenowy `Order`,
+  3. zapisuje go przez `order_repository_port`.
 
-`app/domain/order.py`
-    Model domenowy `Order`.
+- `app/application/user_for_order_dto.py`  
+  DTO `UserForOrderDto`, czyli minimalny zestaw danych potrzebnych do złożenia zamówienia.
 
-`app/ports/user_query_port.py`
-    Port wejścia do pobierania danych użytkownika potrzebnych do utworzenia zamówienia.
+- `app/ports/user_query_port.py`  
+  Port do pobierania danych użytkownika potrzebnych do zamówienia.
 
-`app/ports/order_repository_port.py`
-    Port odpowiedzialny za zapis zamówienia.
+- `app/ports/order_repository_port.py`  
+  Port do zapisu zamówienia.
 
-`app/application/create_order.py`
-    Przypadek użycia `CreateOrderUseCase`, który korzysta wyłącznie z portów i nie zna szczegółów technologicznych.
+- `app/adapters/users_in_memory.py`  
+  Adapter testowy/in-memory zwracający użytkownika `Marcin`.
 
-`app/adapters/users_in_memory.py`
-    Adapter in-memory zwracający dane użytkownika.
+- `app/adapters/users_http.py`  
+  Adapter udający wywołanie zewnętrznego serwisu użytkowników (`print("GET http://users-service/users/{user_id}")`).
 
-`app/adapters/orders_in_memory.py`
-    Adapter in-memory zapisujący zamówienie do listy w pamięci.
+- `app/adapters/orders_in_memory.py`  
+  Adapter zapisujący zamówienia do listy `saved_orders` w pamięci.
 
-`app/adapters/api.py`
-    Prosty punkt uruchomieniowy składający adaptery i uruchamiający przypadek użycia.
+- `app/adapters/orders_file.py`  
+  Adapter zapisujący zamówienia do pliku `orders.txt`.
 
-Co pokazuje ten przykład?
--------------------------
+- `app/adapters/order_sql.py`  
+  Adapter wypisujący przykładowe polecenie SQL `INSERT INTO orders ...`.
 
-Najważniejsza idea architektury heksagonalnej jest taka, że:
+- `app/adapters/api.py`  
+  Prosty entrypoint składający use case z adapterem HTTP po stronie użytkownika oraz adapterem SQL po stronie zamówień.
 
-- logika biznesowa nie zależy od bazy danych,
-- logika biznesowa nie zależy od frameworka webowego,
-- technologia jest podłączana przez adaptery,
-- rdzeń systemu można testować w izolacji.
+- `tests/test_hexagonal_architecture.py`  
+  Testuje rdzeń aplikacyjny z adapterami in-memory, bez zależności od HTTP i SQL.
 
-Jak uruchomić?
---------------
+## Przepływ działania
 
-Uruchom przykład z katalogu `Heksagonal/`:
+1. `CreateOrderUseCase.execute(...)` woła `user_query_port.get_user_for_order(...)`.
+2. Adapter użytkownika zwraca `UserForOrderDto`.
+3. Use case tworzy `Order`.
+4. `order_repository_port.save(order)` zapisuje zamówienie przez wybrany adapter.
 
-    py -3 -m app.adapters.api
+## Co ten przykład pokazuje
 
-Przykładowy wynik:
+- use case zależy od portów, a nie od technologii,
+- adaptery można swobodnie podmieniać,
+- testy mogą uruchamiać logikę biznesową wyłącznie na adapterach in-memory,
+- HTTP / SQL / plik są tylko szczegółami implementacyjnymi na brzegu systemu.
 
-    Saving order: 1 Laptop
-    Marcin Laptop
+## Jak uruchamiać
 
-Jak uruchomić test?
--------------------
+`app/adapters/api.py` importuje moduły przez prefiks `Heksagonal`, więc najprościej uruchamiać z katalogu nadrzędnego workspace:
 
-    py -3 -m unittest discover -s tests -p "test_*.py"
+```powershell
+py -3 -m Heksagonal.app.adapters.api
+```
 
-Czego ten przykład jeszcze nie pokazuje?
-----------------------------------------
+## Jak uruchomić testy
 
-To jest wersja początkowa, więc nie zawiera jeszcze:
+Z katalogu nadrzędnego workspace:
 
-- adaptera HTTP,
-- adaptera bazy danych,
+```powershell
+py -3 -m pytest Heksagonal/tests -q
+```
+
+## Czego ten przykład jeszcze nie pokazuje
+
+- prawdziwego klienta HTTP,
+- prawdziwej bazy danych,
 - walidacji błędów integracyjnych,
-- bardziej rozbudowanego modelu domenowego,
-- osobnego API webowego.
-
-Te elementy można dopisać w kolejnych iteracjach bez zmiany rdzenia biznesowego.
-
+- dependency injection przez framework,
+- bogatszego modelu domenowego.

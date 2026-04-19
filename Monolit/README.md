@@ -1,94 +1,82 @@
-Modularny monolit - przykład
-============================
+# Monolit - przykład modularnego monolitu
 
-Ten katalog zawiera **bardzo prosty przykład modularnego monolitu**.
+Ten katalog pokazuje prosty przykład **modular monolith**.
 
-Celem przykładu nie jest pokazanie pełnej aplikacji produkcyjnej, tylko zademonstrowanie podstawowej idei:
+Cały system działa jako jeden proces, ale kod jest podzielony na osobne moduły biznesowe:
 
-- system działa jako **jedna aplikacja**,
-- kod jest podzielony na **moduły biznesowe**,
-- moduły mają własne modele i serwisy,
-- integracja między nimi odbywa się w jednym miejscu.
+- `users` - odpowiedzialny za użytkownika,
+- `orders` - odpowiedzialny za zamówienia,
+- `contracts` - wspólny kontrakt danych przekazywanych między modułami,
+- `app/main.py` - miejsce, w którym moduły są spinane.
 
-Struktura katalogów
--------------------
+## Co jest w kodzie
 
-::
+```text
+Monolit/
+├── app/
+│   ├── main.py
+│   ├── contracts/
+│   │   └── user_for_order_dto.py
+│   ├── orders/
+│   │   ├── model.py
+│   │   └── service.py
+│   └── users/
+│       ├── model.py
+│       └── service.py
+└── README.md
+```
 
-    Monolit/
-      app/
-        main.py
-        users/
-          model.py
-          service.py
-        orders/
-          model.py
-          service.py
+## Rola plików
 
-Opis elementów
---------------
+- `app/users/model.py`  
+  Model `User` z polami `user_id`, `name`, `email`, `roles`.
 
-`app/users/model.py`
-    Definiuje obiekt `User`.
+- `app/users/service.py`  
+  `UserService.get_user_for_order(...)` buduje obiekt `User`, a następnie mapuje go do `UserForOrderDto`.
 
-`app/users/service.py`
-    Zawiera `UserService`, który zwraca przykładowego użytkownika.
+- `app/contracts/user_for_order_dto.py`  
+  DTO używane jako kontrakt między modułem `users` i `orders`. Zawiera `user_id`, `user_name`, `user_email`.
 
-`app/orders/model.py`
-    Definiuje obiekt `Order`.
+- `app/orders/model.py`  
+  Model `Order` z polami `user_id`, `user_name`, `product`.
 
-`app/orders/service.py`
-    Zawiera `OrderService`, który tworzy zamówienie.
+- `app/orders/service.py`  
+  `OrderService.create_order(...)` przyjmuje `UserForOrderDto` zamiast modelu `User`, dzięki czemu moduł `orders` nie zależy bezpośrednio od wewnętrznego modelu modułu `users`.
 
-`app/main.py`
-    Pełni rolę **warstwy integracyjnej**. To tutaj pobierany jest użytkownik z modułu `users`, a następnie jego identyfikator przekazywany do modułu `orders` w celu utworzenia zamówienia.
+- `app/main.py`  
+  Warstwa integracyjna. Pobiera DTO z `users`, przekazuje je do `orders` i wypisuje utworzone zamówienie.
 
-Przepływ działania
-------------------
+## Przepływ działania
 
-1. `UserService.get_user(1)` zwraca użytkownika `Marcin`.
-2. `OrderService.create_order(...)` tworzy zamówienie na produkt `Laptop`.
-3. `main.py` wypisuje dane użytkownika i zamówienia.
+1. `UserService.get_user_for_order(1)` tworzy użytkownika `Marcin`.
+2. Dane są mapowane do `UserForOrderDto`.
+3. `OrderService.create_order(user_dto, "Laptop")` tworzy zamówienie.
+4. `app/main.py` wypisuje wynik w formacie:
+   `Order: user=Marcin (id=1), product=Laptop`.
 
-Dzięki temu widać podstawową zasadę modularnego monolitu: moduły są rozdzielone logicznie, ale cały system nadal uruchamia się jako jeden proces.
+## Co ten przykład pokazuje
 
-Uruchomienie
-------------
+- jeden proces, ale wyraźne granice modułów,
+- komunikację między modułami przez DTO/kontrakt,
+- brak bezpośredniego przekazywania modelu `User` do modułu `orders`,
+- jedno miejsce integracji w `app/main.py`.
 
-Uruchamiaj przykład z katalogu `app/`, ponieważ importy w `main.py` zakładają właśnie taki punkt startu.
+## Jak uruchamiać
 
+`app/main.py` importuje moduły jako `users.service` i `orders.service`, więc uruchamiaj z katalogu `Monolit/app/`:
 
+```powershell
+py -3 main.py
+```
 
-    cd app
-    py -3 main.py
+## Testy
 
-Przykładowy wynik:
+W aktualnym katalogu `Monolit/` nie ma osobnego folderu `tests`.
 
+## Czego ten przykład jeszcze nie pokazuje
 
-    1 Marcin
-    1 Laptop
-
-Czego ten przykład jeszcze nie pokazuje?
----------------------------------------
-
-To jest wersja podstawowa. Przykład **nie pokazuje jeszcze**:
-
-- przekazywania bardziej złożonych danych użytkownika do zamówienia,
-- DTO między modułami,
-- walidacji biznesowej,
-- zapisu do bazy danych,
-- testów automatycznych.
-
-Te rozszerzenia są opisane w materiałach.
-
-Czego unikać?
--------------
-
-W modularnym monolicie warto unikać:
-
-- bezpośredniego importowania modeli jednego modułu do wnętrza drugiego modułu,
-- mieszania odpowiedzialności między `users` i `orders`,
-- traktowania samego podziału katalogów jako pełnej architektury.
-
-Najważniejsza idea jest prosta: **jeden system, ale wyraźne granice modułów**.
-
+- bazy danych,
+- API HTTP,
+- zdarzeń domenowych,
+- niezależnego wdrażania modułów,
+- testów automatycznych dla granic modułów.

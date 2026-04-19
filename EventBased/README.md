@@ -1,105 +1,112 @@
- EventBased - przykład architektury zdarzeniowej
-==============================================
+# EventBased - przykład architektury zdarzeniowej
 
-Ten katalog zawiera **podstawową implementację** architektury event-driven z prostą kompensacją:
+Ten katalog pokazuje prosty przykład **event-driven workflow** z kompensacją:
 
-- prosty `EventBus`,
-- moduł `orders`, który zapisuje zamówienie i publikuje zdarzenie `OrderCreated`,
-- moduł `loyalty`, który niezależnie próbuje zapisać punkty i publikuje sukces albo porażkę,
-- moduł `notifications`, który reaguje dopiero na potwierdzone zamówienie,
-- punkt uruchomieniowy spinający cały przepływ.
+- moduł `orders` zapisuje zamówienie i publikuje `OrderCreated`,
+- moduł `loyalty` niezależnie próbuje zapisać punkty,
+- po sukcesie loyalty publikuje `LoyaltyPointsAdded`,
+- moduł `orders` zmienia status na `PROCESSED` i publikuje `OrderProcessed`,
+- moduł `notifications` wysyła potwierdzenie dopiero po `OrderProcessed`,
+- gdy zapis punktów się nie uda, `orders` oznacza zamówienie jako `RETRACTED` i potwierdzenie nie jest wysyłane.
 
-Scenariusz przykładowy
-----------------------
+## Co jest w kodzie
 
-W przykładzie realizujemy następujący scenariusz:
+```text
+EventBased/
+├── app/
+│   ├── main.py
+│   ├── events/
+│   │   ├── bus.py
+│   │   ├── dto.py
+│   │   └── outbox_publisher.py
+│   ├── loyalty/
+│   │   └── handler.py
+│   ├── notifications/
+│   │   └── handler.py
+│   └── orders/
+│       ├── handler.py
+│       └── service.py
+└── tests/
+    └── test_event_based_smoke.py
+```
 
-- tworzymy zamówienie dla użytkownika `Marcin`,
-- moduł `orders` publikuje zdarzenie `OrderCreated`,
-- moduł `loyalty` niezależnie zapisuje punkty i publikuje `LoyaltyPointsAdded`,
-- moduł `orders` aktualizuje status zamówienia na `PROCESSED`,
-- moduł `notifications` wysyła potwierdzenie po zakończeniu przepływu,
-- jeżeli zapis punktów się nie uda, zamówienie zostaje oznaczone jako `RETRACTED` i nie ma potwierdzenia.
+## Rola plików
 
-Struktura katalogów
--------------------
+- `app/main.py`  
+  Składa cały przykład w pamięci: tworzy `EventBus`, dwa outboxy (`orders` i `loyalty`), repozytorium zamówień oraz rejestruje subskrypcje. Zawiera też helper `publish_all_pending_events(...)`, który opróżnia outboxy aż workflow się zakończy.
 
-    EventBased/
-      app/
-        main.py
-        events/
-          bus.py
-        orders/
-          service.py
-        notifications/
-          handler.py
-      tests/
-        test_event_based_smoke.py
+- `app/events/bus.py`  
+  Minimalny, synchroniczny event bus z `subscribe()` i `publish()`.
 
-Opis elementów
---------------
+- `app/events/outbox_publisher.py`  
+  Czyta wiadomości o statusie `NEW`, publikuje je na busie i oznacza jako `PUBLISHED`.
 
-`app/events/bus.py`
-    Zawiera klasę `EventBus` z metodami `subscribe()` i `publish()`.
+- `app/events/dto.py`  
+  Zawiera klasy DTO pozostawione w katalogu, ale bieżący przepływ korzysta już głównie z prostych słowników jako payloadów zdarzeń.
 
-`app/orders/service.py`
-    Zawiera `OrderService`, który tworzy zamówienie i publikuje zdarzenie `OrderCreated`.
+- `app/orders/service.py`  
+  Tworzy zamówienie ze statusem `PENDING_LOYALTY`, zapisuje je i odkłada zdarzenie `OrderCreated` do outboxa `orders`.
 
-`app/orders/handler.py`
-    Zawiera handlery `mark_order_as_processed(...)` i `retract_order(...)`, reagujące na wynik procesu loyalty.
+- `app/orders/handler.py`  
+  Reaguje na wynik procesu loyalty:
+  - `mark_order_as_processed(...)` ustawia status `PROCESSED` i publikuje `OrderProcessed`,
+  - `retract_order(...)` ustawia status `RETRACTED`.
 
-`app/loyalty/handler.py`
-    Zawiera handler `register_loyalty_points(...)`, który zapisuje punkty i zapisuje do własnego outboxa zdarzenie sukcesu albo porażki.
+- `app/loyalty/handler.py`  
+  Zapisuje punkty lojalnościowe i publikuje wynik do outboxa `loyalty`:
+  - `LoyaltyPointsAdded` przy sukcesie,
+  - `LoyaltyPointsSaveFailed` przy błędzie.  
+  Plik zawiera też prostą idempotencję (`points_were_already_added(...)`) oraz flagę testową `should_fail_to_save_points`.
 
-`app/notifications/handler.py`
-    Zawiera handler `send_order_confirmation(order)`, reagujący na zdarzenie `OrderProcessed`.
+- `app/notifications/handler.py`  
+  Wysyła potwierdzenie tylko dla zdarzenia `OrderProcessed`.
 
-`app/main.py`
-    Składa obiekty, rejestruje handler i uruchamia przykładowy przepływ.
+- `tests/test_event_based_smoke.py`  
+  Sprawdza trzy scenariusze:
+  - pełny happy path,
+  - idempotentny zapis punktów,
+  - rollback biznesowy: `RETRACTED` bez potwierdzenia.
 
-`tests/test_event_based_smoke.py`
-    Prosty test smoke sprawdzający, że publikacja zdarzenia wywołuje handler.
+## Przepływ działania
 
-Co pokazuje ten przykład?
--------------------------
+1. `OrderService.create_order(...)` zapisuje zamówienie i odkłada `OrderCreated` do outboxa `orders`.
+2. `OutboxPublisher` publikuje `OrderCreated`.
+3. `loyalty.handler.register_loyalty_points(...)` próbuje zapisać punkty.
+4. Loyalty publikuje jedno z dwóch zdarzeń:
+   - `LoyaltyPointsAdded`, albo
+   - `LoyaltyPointsSaveFailed`.
+5. `orders.handler` reaguje na wynik:
+   - sukces -> status `PROCESSED` + `OrderProcessed`,
+   - porażka -> status `RETRACTED`.
+6. `notifications.handler.send_order_confirmation(...)` działa tylko po `OrderProcessed`.
 
-Najważniejsza idea architektury zdarzeniowej jest taka, że:
+## Co ten przykład pokazuje
 
-- producent zdarzenia nie zna bezpośrednio konsumenta,
-- nowe reakcje można dodawać bez zmiany modułu `orders`,
-- komunikacja odbywa się przez zdarzenie, a nie bezpośrednie wywołanie metody,
-- kolejne etapy procesu mogą publikować następne zdarzenia (`OrderCreated` -> `LoyaltyPointsAdded` -> `OrderProcessed`),
-- porażka w jednym niezależnym kroku może uruchomić prostą kompensację (`RETRACTED`).
+- niezależne kroki procesu połączone zdarzeniami,
+- lokalny outbox jako prosty mechanizm niezawodnego publikowania,
+- kompensację zamiast jednej wspólnej transakcji między procesami,
+- jawne statusy procesu: `PENDING_LOYALTY`, `PROCESSED`, `RETRACTED`.
 
-Jak uruchomić?
---------------
+## Jak uruchamiać
 
-Uruchom przykład z katalogu `EventBased/`:
+Aktualne importy w `app/main.py` używają prefiksu `EventBased`, więc najprościej uruchamiać przykład z katalogu nadrzędnego workspace:
 
-    py -3 -m app.main
+```powershell
+py -3 -m EventBased.app.main
+```
 
-Przykładowy wynik:
+## Jak uruchomić testy
 
-    Saving order to DB {'order_id': 101, 'user_id': 1, 'user_name': 'Marcin', 'product': 'Laptop', 'status': 'PENDING_LOYALTY'}
-    Saving points for user 1 order id 101
-    Sending notification for done order for Marcin and product Laptop
-    Order :  {'order_id': 101, 'user_id': 1, 'user_name': 'Marcin', 'product': 'Laptop', 'status': 'PROCESSED'}
+Z katalogu nadrzędnego workspace:
 
-Jak uruchomić test?
--------------------
+```powershell
+py -3 -m pytest EventBased/tests -q
+```
 
-    py -3 -m unittest discover -s tests -p "test_*.py"
+## Czego ten przykład jeszcze nie pokazuje
 
-Czego ten przykład jeszcze nie pokazuje?
-----------------------------------------
-
-To jest wersja podstawowa, więc nie zawiera jeszcze:
-
-- wielu różnych subskrybentów jednego zdarzenia,
-- osobnych klas zdarzeń lub DTO dla payloadu,
-- kolejki lub brokera wiadomości,
-- pełnej trwałości pomiędzy restartami procesu,
-- asynchronicznego przetwarzania.
-
-Te elementy można dopisać w kolejnych iteracjach.
-
+- prawdziwego brokera wiadomości,
+- trwałego outboxa w bazie danych,
+- osobnych procesów/workerów dla `orders`, `loyalty` i `notifications`,
+- retry/backoff i dead-letter queue,
+- monitoringu i observability.
