@@ -2,6 +2,8 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 import pytest
+import requests
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -38,12 +40,29 @@ def test_users_service_returns_user():
 
 
 def test_orders_service_creates_order():
-    app = load_app("orders-service/main.py")
-    client = TestClient(app)
+    module = load_module("orders-service/main.py")
+
+    class DummyResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, timeout):
+        assert url == "http://127.0.0.1:8002/users/1"
+        assert timeout == 2
+        return DummyResponse({"user_id": 1, "user_name": "Marcin"})
+
+    module.requests.get = fake_get
+    client = TestClient(module.app)
 
     response = client.post(
         "/orders",
-        json={"user_id": 1, "user_name": "Marcin", "product": "Laptop"},
+        json={"user_id": 1, "product": "Laptop"},
     )
 
     assert response.status_code == 200
@@ -67,18 +86,12 @@ def test_root_script_run_orchestrates_services(monkeypatch):
         def raise_for_status(self):
             return None
 
-    def fake_get(url, timeout):
-        assert url == "http://127.0.0.1:8001/users/1"
-        assert timeout == 5
-        return DummyResponse({"user_id": 1, "user_name": "Marcin"})
-
     def fake_post(url, json, timeout):
-        assert url == "http://127.0.0.1:8002/orders"
+        assert url == "http://127.0.0.1:8001/orders"
         assert timeout == 5
-        assert json == {"user_id": 1, "user_name": "Marcin", "product": "Laptop"}
-        return DummyResponse(json)
+        assert json == {"user_id": 1, "product": "Laptop"}
+        return DummyResponse({"user_id": 1, "user_name": "Marcin", "product": "Laptop"})
 
-    monkeypatch.setattr(module.requests, "get", fake_get)
     monkeypatch.setattr(module.requests, "post", fake_post)
 
     result = module.run()
@@ -91,13 +104,14 @@ def test_root_script_run_propagates_http_error(monkeypatch):
 
     class DummyErrorResponse:
         def raise_for_status(self):
-            raise requests.HTTPError("users-service unavailable")
+            raise requests.HTTPError("orders-service unavailable")
 
-    import requests
+    monkeypatch.setattr(module.requests, "post", lambda url, json, timeout: DummyErrorResponse())
 
-    monkeypatch.setattr(module.requests, "get", lambda url, timeout: DummyErrorResponse())
-
-    with pytest.raises(requests.HTTPError):
+    with pytest.raises(HTTPException) as exc_info:
         module.run()
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Users service unavailable"
 
 
